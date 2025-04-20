@@ -1,7 +1,7 @@
 {
-  "name": "tutorial-gen",
+  "name": "tutorial-generator",
   "version": "1.0.0",
-  "description": "",
+  "description": "A package to generate tutorial videos from text and audio",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -9,9 +9,21 @@
     "voice": "npx ts-node src/cli.ts analyze -f tester.ts --voice",
     "video": "npx ts-node src/cli.ts analyze -f tutorial.ts --voice --video"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "tutorial",
+    "video",
+    "text-to-video",
+    "node",
+    "canvas",
+    "ffmpeg",
+    "tts"
+  ],
+  "author": "Loganthewise",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:lawalabdulrazaq/tutorial-generator.git"
+  },
   "dependencies": {
     "@solana/spl-token": "^0.4.13",
     "@solana/web3.js": "^1.98.0",
