@@ -3,6 +3,19 @@ import fs from 'fs';
 import path from 'path';
 import { CanvasRenderingContext2D } from 'canvas';
 
+const gTTS = require('node-gtts');
+const gtts = gTTS('en');
+
+function generateAudioFromText(text: string, outputPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    gtts.save(outputPath, text, () => {
+      console.log(`✅ Audio saved to ${outputPath}`);
+      resolve();
+    });
+  });
+}
+
+
 /**
  * Get the duration of the audio.
  */
@@ -114,12 +127,31 @@ function concatSlideVideos(videoPaths: string[], outputPath: string): Promise<vo
 /**
  * Merge final video with audio.
  */
+// function mergeWithAudio(videoPath: string, audioPath: string, outputPath: string): Promise<void> {
+//   return new Promise((resolve, reject) => {
+//     ffmpeg()
+//       .addInput(videoPath)
+//       .addInput(audioPath)
+//       .outputOptions(['-shortest', '-c:v copy', '-c:a aac'])
+//       .output(outputPath)
+//       .on('end', () => resolve())
+//       .on('error', (err) => reject(err))
+//       .run();
+//   });
+// }
+
 function mergeWithAudio(videoPath: string, audioPath: string, outputPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     ffmpeg()
       .addInput(videoPath)
       .addInput(audioPath)
-      .outputOptions(['-shortest', '-c:v copy', '-c:a aac'])
+      .outputOptions([
+        '-shortest',
+        '-c:v copy',
+        '-c:a aac',
+        '-b:a 192k',     // ✅ added bitrate for audio
+        '-movflags +faststart' // ✅ helps audio start faster in some players
+      ])
       .output(outputPath)
       .on('end', () => resolve())
       .on('error', (err) => reject(err))
@@ -153,17 +185,58 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
 /**
  * Main function to generate the full tutorial video.
  */
+// export async function generateVideo(tutorialText: string, audioPath: string, finalOutputPath: string): Promise<void> {
+//   const outputDir = path.join(__dirname, 'slides');
+//   const tempClipsDir = path.join(outputDir, 'clips');
+
+//   if (!fs.existsSync(tempClipsDir)) {
+//     fs.mkdirSync(tempClipsDir, { recursive: true });
+//   }
+
+//   try {
+//     const slides = await generateSlides(tutorialText, outputDir);
+//     const audioDuration = await getAudioDuration(audioPath);
+//     const durationPerSlide = audioDuration / slides.length;
+
+//     const videoClips: string[] = [];
+
+//     for (let i = 0; i < slides.length; i++) {
+//       const videoClipPath = path.join(tempClipsDir, `clip_${i}.mp4`);
+//       await createSlideVideo(slides[i], videoClipPath, durationPerSlide);
+//       videoClips.push(videoClipPath);
+//     }
+
+//     const concatVideoPath = path.join(outputDir, 'combined.mp4');
+//     await concatSlideVideos(videoClips, concatVideoPath);
+
+//     await mergeWithAudio(concatVideoPath, audioPath, finalOutputPath);
+//     console.log(`✅ Final tutorial video saved to: ${finalOutputPath}`);
+
+//     // Cleanup temporary files
+//     [...slides, ...videoClips, concatVideoPath].forEach(file => fs.unlinkSync(file));
+//     fs.unlinkSync(path.join(outputDir, 'file_list.txt'));
+//     fs.rmdirSync(tempClipsDir);
+//     console.log('🧹 Cleaned up temporary files.');
+//   } catch (err) {
+//     console.error('❌ Error generating video:', err);
+//     throw err;
+//   }
+// }
+
 export async function generateVideo(tutorialText: string, audioPath: string, finalOutputPath: string): Promise<void> {
   const outputDir = path.join(__dirname, 'slides');
   const tempClipsDir = path.join(outputDir, 'clips');
+  const ttsPath = path.join(outputDir, 'narration.mp3');
 
   if (!fs.existsSync(tempClipsDir)) {
     fs.mkdirSync(tempClipsDir, { recursive: true });
   }
 
   try {
+    fs.copyFileSync(audioPath, ttsPath);
+
     const slides = await generateSlides(tutorialText, outputDir);
-    const audioDuration = await getAudioDuration(audioPath);
+    const audioDuration = await getAudioDuration(ttsPath);
     const durationPerSlide = audioDuration / slides.length;
 
     const videoClips: string[] = [];
@@ -177,11 +250,11 @@ export async function generateVideo(tutorialText: string, audioPath: string, fin
     const concatVideoPath = path.join(outputDir, 'combined.mp4');
     await concatSlideVideos(videoClips, concatVideoPath);
 
-    await mergeWithAudio(concatVideoPath, audioPath, finalOutputPath);
+    await mergeWithAudio(concatVideoPath, ttsPath, finalOutputPath);
     console.log(`✅ Final tutorial video saved to: ${finalOutputPath}`);
 
-    // Cleanup temporary files
-    [...slides, ...videoClips, concatVideoPath].forEach(file => fs.unlinkSync(file));
+    // Cleanup
+    [...slides, ...videoClips, concatVideoPath, ttsPath].forEach(file => fs.unlinkSync(file));
     fs.unlinkSync(path.join(outputDir, 'file_list.txt'));
     fs.rmdirSync(tempClipsDir);
     console.log('🧹 Cleaned up temporary files.');
