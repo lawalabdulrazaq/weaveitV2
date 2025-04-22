@@ -1,7 +1,7 @@
 {
-  "name": "@loganthewise/tutorial-generator-v2",
+  "name": "weaveit",
   "version": "1.0.0",
-  "description": "A package to generate tutorial videos from text and audio",
+  "description": "A solana package to generate tutorial videos from text and audio",
   "main": "index.js",
   "types": "declarations.d.ts",
   "scripts": {
