@@ -24,7 +24,7 @@
   "license": "ISC",
   "repository": {
     "type": "git",
-    "url": "git@github.com:lawalabdulrazaq/tutorial-generator.git"
+    "url": "git@github.com:lawalabdulrazaq/weaveit.git"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.13",
