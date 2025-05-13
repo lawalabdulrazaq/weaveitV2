@@ -19,7 +19,7 @@ const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const codeAnalyzer_1 = require("./codeAnalyzer");
 const textToSpeech_1 = require("./textToSpeech");
-const videoGenerator_1 = require("./videoGenerator");
+const server_1 = require("./server");
 const program = new commander_1.Command();
 program
     .name('aigen')
@@ -47,7 +47,8 @@ program
     }
     if (options.video) {
         const videoPath = filePath.replace(/\.[^.]+$/, '.mp4');
-        yield (0, videoGenerator_1.generateVideo)(result.tutorialText, audioPath, videoPath);
+        yield (0, server_1.render3DVideo)(result.tutorialText, audioPath);
     }
 }));
 program.parse();
+exports.default = program;

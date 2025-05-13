@@ -1,3 +1,38 @@
+// src/config.ts
+import dotenv from 'dotenv';
+dotenv.config();
+
+const password = "E1lvrD7eNg2NkLWA";
+const username = "temitopelawal925";
+export const config = {
+    server: {
+      port: parseInt(process.env.PORT || '3000', 10),
+      host: process.env.HOST || 'localhost'
+    },
+    mongodb: {
+      uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/tutorial-videos',
+      options: {
+        useNewUrlParser: true,
+        useUnifiedTopology: true
+      }
+    },
+    storage: {
+      tempDir: process.env.TEMP_DIR || './temp',
+      outputDir: process.env.OUTPUT_DIR || './output'
+    },
+    video: {
+      defaultTheme: 'dark',
+      defaultAnimationStyle: 'fade',
+      defaultResolution: {
+        width: 1280,
+        height: 720
+      },
+      defaultQuality: 'high'
+    },
+    session: {
+      expiryTime: 60 * 60 * 1000 // 1 hour in milliseconds
+    }
+  };
 export interface ConfigOptions {
     openaiApiKey: string;
     useMock?: boolean;

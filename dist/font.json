@@ -1,0 +1,50 @@
+{
+    "fonts": [
+        {
+            "name": "Roboto",
+            "variants": ["regular", "bold", "italic", "bolditalic"],
+            "styles": {
+                "regular": {
+                    "path": "assets/fonts/Roboto-Regular.ttf",
+                    "weight": 400,
+                    "style": "normal"
+                },
+                "bold": {
+                    "path": "assets/fonts/Roboto-Bold.ttf",
+                    "weight": 700,
+                    "style": "normal"
+                },
+                "italic": {
+                    "path": "assets/fonts/Roboto-Italic.ttf",
+                    "weight": 400,
+                    "style": "italic"
+                },
+                "bolditalic": {
+                    "path": "assets/fonts/Roboto-BoldItalic.ttf",
+                    "weight": 700,
+                    "style": "italic"
+                }
+            }
+        },
+        {
+            "name": "JetBrains Mono",
+            "variants": ["regular", "bold"],
+            "styles": {
+                "regular": {
+                    "path": "assets/fonts/JetBrainsMono-Regular.ttf",
+                    "weight": 400,
+                    "style": "normal"
+                },
+                "bold": {
+                    "path": "assets/fonts/JetBrainsMono-Bold.ttf",
+                    "weight": 700,
+                    "style": "normal"
+                }
+            }
+        }
+    ],
+    "defaults": {
+        "regular": "Roboto",
+        "code": "JetBrains Mono"
+    }
+}

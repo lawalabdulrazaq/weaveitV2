@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { analyzeCode } from './codeAnalyzer';
 import { generateSpeech } from './textToSpeech';
-import { generateVideo } from './videoGenerator';
+import { render3DVideo } from './server';
 
 const program = new Command();
 
@@ -40,8 +40,10 @@ program
 
     if (options.video) {
       const videoPath = filePath.replace(/\.[^.]+$/, '.mp4');
-      await generateVideo(result.tutorialText, audioPath, videoPath);
+      await render3DVideo(result.tutorialText, audioPath,);
     }
   });
 
 program.parse();
+
+export default program;
