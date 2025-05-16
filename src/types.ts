@@ -26,6 +26,7 @@ export interface VideoGenerationOptions extends SlideGenerationOptions {
   fps?: number;
   format?: 'mp4' | 'webm';
   quality: string; // e.g., 'high', 'medium', 'low'
+  outputPath?: string; // Path where the generated video will be saved
 }
 
 export interface SpeechGenerationOptions {

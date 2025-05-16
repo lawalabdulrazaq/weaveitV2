@@ -11,6 +11,21 @@ config();
 const writeFileAsync = promisify(fs.writeFile);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
+
+export class TextToSpeechService {
+  async synthesizeSpeech(text: string): Promise<Buffer> {
+    // Implement your text-to-speech logic here
+    const audioResponse = await openai.audio.speech.create({
+      model: 'tts-1',
+      voice: 'alloy',
+      input: text,
+      speed: 1.0,
+    });
+
+    return Buffer.from(await audioResponse.arrayBuffer());
+  }
+}
+
 /**
  * Generate speech from text using OpenAI's TTS API
  * @param text The text to convert to speech

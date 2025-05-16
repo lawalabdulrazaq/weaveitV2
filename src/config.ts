@@ -1,5 +1,6 @@
 // src/config.ts
 import dotenv from 'dotenv';
+import path from 'path';
 dotenv.config();
 
 const password = "E1lvrD7eNg2NkLWA";
@@ -16,9 +17,13 @@ export const config = {
         useUnifiedTopology: true
       }
     },
+    // storage: {
+    //   tempDir: process.env.TEMP_DIR || './temp',
+    //   outputDir: process.env.OUTPUT_DIR || './output'
+    // },
     storage: {
-      tempDir: process.env.TEMP_DIR || './temp',
-      outputDir: process.env.OUTPUT_DIR || './output'
+    tempDir: path.join(process.cwd(), 'temp'),
+    outputDir: path.join(process.cwd(), 'uploads'),
     },
     video: {
       defaultTheme: 'dark',

@@ -18,6 +18,10 @@ export async function connectDB(): Promise<void> {
     console.log(`Connecting to MongoDB at ${uri.split('@').length > 1 ? uri.split('@')[1] : 'localhost'}`);
     
     await mongoose.connect(uri, connectionOptions);
+    // await mongoose.connect(uri, {
+    //   useNewUrlParser: true,
+    //   useUnifiedTopology: true,
+    // });
     
     console.log('MongoDB connected successfully');
     
@@ -40,6 +44,7 @@ export async function connectDB(): Promise<void> {
   } catch (error) {
     console.error('Failed to connect to MongoDB:', error);
     process.exit(1);
+    // throw new Error('Failed to connect to MongoDB');
   }
 }
 

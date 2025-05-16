@@ -247,43 +247,33 @@
  * @swagger
  * /videos/{filename}:
  *   get:
- *     summary: Download or stream a video
- *     description: Access a generated video by filename
- *     tags: [Videos]
+ *     summary: Download a video by filename
+ *     description: Streams the video file for download.
  *     parameters:
  *       - in: path
  *         name: filename
  *         required: true
  *         schema:
  *           type: string
- *         description: Video filename
- *         example: 1620000000000-a1b2c3d4.mp4
- *       - in: header
- *         name: x-wallet-address
+ *         description: The filename of the video to download.
+ *       - in: query
+ *         name: wallet
+ *         required: false
  *         schema:
  *           type: string
- *         required: false
- *         description: Wallet address for authentication (optional)
+ *         description: Wallet address for ownership verification.
  *     responses:
  *       200:
- *         description: Video file
+ *         description: Video file streamed successfully.
  *         content:
- *           video/mp4:
+ *           application/octet-stream:
  *             schema:
  *               type: string
  *               format: binary
  *       404:
- *         description: Video not found or access denied
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
+ *         description: Video not found.
  *       500:
- *         description: Server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
+ *         description: Internal server error.
  */
 
 /**

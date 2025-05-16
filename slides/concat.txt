@@ -1,0 +1,2 @@
+file '/home/loganthewise/code/mcp-server/slides/slides/slide_0.png'
+duration 175.608

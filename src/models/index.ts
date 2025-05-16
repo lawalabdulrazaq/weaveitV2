@@ -22,6 +22,8 @@ export interface IVideo extends Document {
   animationStyle: string;
   status: 'processing' | 'completed' | 'failed';
   errorMessage?: string;
+  videoGridFSId?: mongoose.Types.ObjectId;
+  voiceoverId?: string | mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -60,6 +62,11 @@ const VideoSchema = new Schema<IVideo>({
   videoPath: { 
     type: String, 
     required: true 
+  },
+  voiceoverId: { 
+    type: Schema.Types.ObjectId, 
+    ref: 'Voiceover',
+    required: false 
   },
   owner: { 
     type: Schema.Types.ObjectId, 

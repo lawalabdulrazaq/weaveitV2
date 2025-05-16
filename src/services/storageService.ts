@@ -1,45 +1,160 @@
 // src/services/storageService.ts
-import fs from 'fs/promises';
+// import fs from 'fs/promises';
+import * as fs from 'fs';
 import { existsSync, createReadStream } from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import mongoose, { Types } from 'mongoose';
+import { GridFSBucket, ObjectId } from 'mongodb';
 import { config } from '../config';
 import { Video, User, Voiceover, IUser, IVideo, IVoiceover } from '../models';
-import mongoose from 'mongoose';
-
+import { GridFSBucketWriteStream } from 'mongodb';
 /**
  * Storage service to handle file operations and database interactions
  */
 export class StorageService {
+  private static gridFSBucket: GridFSBucket;
+
+
   /**
-   * Ensures the specified directory exists
-   * @param dirPath Directory path to ensure
+   * Get the GridFS bucket instance
+   * @returns GridFSBucket instance
    */
+  static async getGridFSBucket(): Promise<GridFSBucket> {
+    if (!this.gridFSBucket) {
+      await this.initializeGridFS();
+    }
+    return this.gridFSBucket;
+  }
+
+  /**
+   * Create an upload stream to GridFS
+   * @param filename Name of the file to store
+   * @param options Upload stream options
+   * @returns GridFSBucketWriteStream
+   */
+  static async createUploadStream(
+    filename: string,
+    options?: { metadata?: any }
+  ): Promise<GridFSBucketWriteStream> {
+    const bucket = await this.getGridFSBucket();
+    return bucket.openUploadStream(filename, options);
+  }
+
+  /**
+   * Delete a file from GridFS
+   * @param fileId GridFS file ID to delete
+   */
+  static async deleteFile(fileId: ObjectId): Promise<void> {
+    const bucket = await this.getGridFSBucket();
+    await bucket.delete(fileId);
+  }
+
+  /**
+   * Initialize GridFS bucket
+   */
+  static async initializeGridFS() {
+    try {
+      if (mongoose.connection.readyState !== 1) {
+        console.log('Waiting for MongoDB connection...');
+        await new Promise<void>((resolve, reject) => {
+          mongoose.connection.once('open', resolve);
+          mongoose.connection.once('error', reject);
+        });
+      }
+
+      // Ensure mongoose.connection.db is defined
+      if (!mongoose.connection.db) {
+        throw new Error('MongoDB connection is not fully initialized.');
+      }
+
+      this.gridFSBucket = new GridFSBucket(mongoose.connection.db, { bucketName: 'videos' });
+      console.log('GridFS initialized for video storage.');
+    } catch (error) {
+      console.error('Error initializing GridFS:', error);
+      throw new Error('Failed to initialize GridFS');
+    }
+  }
+
+  /**
+   * Upload a video to GridFS
+   * @param filePath Path to the video file
+   * @param filename Name of the file to store in GridFS
+   * @returns The GridFS file ID
+   */
+  static async uploadVideoToGridFS(filePath: string, filename: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const uploadStream = this.gridFSBucket.openUploadStream(filename);
+      const fileStream = createReadStream(filePath);
+
+      fileStream.pipe(uploadStream)
+        .on('error', (error) => {
+          console.error('Error uploading video to GridFS:', error);
+          reject(error);
+        })
+        .on('finish', () => {
+          console.log('Video uploaded to GridFS:', uploadStream.id);
+          resolve(uploadStream.id.toString());
+        });
+    });
+  }
+
+  /**
+   * Retrieve a video from GridFS
+   * @param fileId The GridFS file ID
+   * @returns A readable stream of the video
+   */
+  static getVideoFromGridFS(fileId: string) {
+    return this.gridFSBucket.openDownloadStream(new Types.ObjectId(fileId));
+  }
+
   static async ensureDirectory(dirPath: string): Promise<string> {
     if (!existsSync(dirPath)) {
-      await fs.mkdir(dirPath, { recursive: true });
+      await fs.promises.mkdir(dirPath, { recursive: true });
     }
     return dirPath;
   }
 
   /**
-   * Gets or creates a user by wallet address
-   * @param walletAddress User's wallet address
-   * @returns User document
+   * Update a video record
+   * @param videoId Video ID to update
+   * @param updateData Data to update
+   * @returns Updated video record
    */
+  static async updateVideoRecord(
+    videoId: string | Types.ObjectId,
+    updateData: {
+      videoPath?: string;
+      status?: 'processing' | 'completed' | 'failed';
+      errorMessage?: string;
+      videoGridFSId?: string | mongoose.Types.ObjectId;
+    }
+  ): Promise<IVideo | null> {
+    try {
+      const video = await Video.findByIdAndUpdate(
+        videoId,
+        { $set: updateData },
+        { new: true }
+      );
+
+      if (!video) {
+        throw new Error(`Video not found with id: ${videoId}`);
+      }
+
+      return video;
+    } catch (error) {
+      console.error('Error updating video record:', error);
+      throw new Error(`Failed to update video record: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   static async getOrCreateUser(walletAddress: string): Promise<IUser> {
     try {
-      // Normalize wallet address
       walletAddress = walletAddress.toLowerCase();
-      
-      // Try to find existing user
       let user = await User.findOne({ walletAddress });
-      
-      // If user doesn't exist, create one
       if (!user) {
         user = await User.create({ walletAddress });
       }
-      
       return user;
     } catch (error) {
       console.error('Error getting/creating user:', error);
@@ -47,24 +162,17 @@ export class StorageService {
     }
   }
 
-  /**
-   * Saves a temporary file for processing
-   * @param content Content to save
-   * @param extension File extension
-   * @returns Path to saved file
-   */
   static async saveTempFile(content: Buffer | string, extension: string): Promise<string> {
     try {
       const tempDir = await this.ensureDirectory(config.storage.tempDir);
+      console.log('Temporary directory:', tempDir);
       const filename = `${Date.now()}-${randomUUID().slice(0, 8)}${extension}`;
       const filePath = path.join(tempDir, filename);
-      
       if (typeof content === 'string') {
-        await fs.writeFile(filePath, content, 'utf-8');
+        await fs.promises.writeFile(filePath, content, 'utf-8');
       } else {
-        await fs.writeFile(filePath, content);
+        await fs.promises.writeFile(filePath, content);
       }
-      
       return filePath;
     } catch (error) {
       console.error('Error saving temporary file:', error);
@@ -72,18 +180,14 @@ export class StorageService {
     }
   }
 
-  /**
-   * Creates a video record in the database
-   * @param params Video parameters
-   * @returns Created video document
-   */
   static async createVideoRecord({
     title,
     codeSnippet,
     videoPath,
     walletAddress,
     theme = config.video.defaultTheme,
-    animationStyle = config.video.defaultAnimationStyle
+    animationStyle = config.video.defaultAnimationStyle,
+    voiceoverId = null
   }: {
     title: string;
     codeSnippet: string;
@@ -91,24 +195,25 @@ export class StorageService {
     walletAddress: string;
     theme?: string;
     animationStyle?: string;
+    voiceoverId?: string | ObjectId | null;
   }): Promise<IVideo> {
     try {
-      // Get or create user
       const user = await this.getOrCreateUser(walletAddress);
-      
-      // Create video record
+
       const video = await Video.create({
         title,
         codeSnippet,
         videoPath,
         owner: user._id,
         walletAddress: user.walletAddress,
-        accessUrl: `/videos/${path.basename(videoPath)}?wallet=${user.walletAddress}`,
+        // accessUrl: `/videos/${path.basename(videoPath)}?wallet=${user.walletAddress}`,
+        accessUrl: `/videos/${videoPath}?wallet=${user.walletAddress}`,
         theme,
         animationStyle,
+        voiceoverId,
         status: 'processing'
       });
-      
+
       return video;
     } catch (error) {
       console.error('Error creating video record:', error);
@@ -116,31 +221,23 @@ export class StorageService {
     }
   }
 
-  /**
-   * Updates the video status
-   * @param videoId Video ID
-   * @param status New status
-   * @param errorMessage Optional error message
-   * @returns Updated video document
-   */
   static async updateVideoStatus(
-    videoId: string | mongoose.Types.ObjectId, 
-    status: 'processing' | 'completed' | 'failed', 
+    videoId: string | Types.ObjectId,
+    status: 'processing' | 'completed' | 'failed',
     errorMessage?: string
   ): Promise<IVideo | null> {
     try {
       const updateData: any = { status };
-      
       if (errorMessage && status === 'failed') {
         updateData.errorMessage = errorMessage;
       }
-      
+
       const video = await Video.findByIdAndUpdate(
         videoId,
         updateData,
         { new: true }
       );
-      
+
       return video;
     } catch (error) {
       console.error('Error updating video status:', error);
@@ -148,11 +245,6 @@ export class StorageService {
     }
   }
 
-  /**
-   * Creates a voiceover record in the database
-   * @param params Voiceover parameters
-   * @returns Created voiceover document
-   */
   static async createVoiceoverRecord({
     content,
     audioPath,
@@ -165,10 +257,8 @@ export class StorageService {
     duration?: number;
   }): Promise<IVoiceover> {
     try {
-      // Get or create user
       const user = await this.getOrCreateUser(walletAddress);
-      
-      // Create voiceover record
+
       const voiceover = await Voiceover.create({
         content,
         audioPath,
@@ -176,7 +266,7 @@ export class StorageService {
         walletAddress: user.walletAddress,
         duration
       });
-      
+
       return voiceover;
     } catch (error) {
       console.error('Error creating voiceover record:', error);
@@ -184,33 +274,21 @@ export class StorageService {
     }
   }
 
-  /**
-   * Retrieves a video by ID with owner verification
-   * @param videoId Video ID or filename
-   * @param walletAddress Owner's wallet address
-   * @returns Video document or null if not found/authorized
-   */
-  static async getVideoByIdOrFilename(
-    videoId: string, 
-    walletAddress?: string
-  ): Promise<IVideo | null> {
+  static async getVideoByIdOrFilename(videoId: string, walletAddress?: string): Promise<IVideo | null> {
     try {
       let video: IVideo | null = null;
-      
-      // Check if videoId is an ObjectId or a filename
-      if (mongoose.Types.ObjectId.isValid(videoId)) {
+
+      if (Types.ObjectId.isValid(videoId)) {
         video = await Video.findById(videoId);
       } else {
-        // Assume it's a filename
         const filename = path.basename(videoId);
         video = await Video.findOne({ videoPath: { $regex: filename, $options: 'i' } });
       }
-      
-      // If video not found or wallet address doesn't match (when provided)
+
       if (!video || (walletAddress && video.walletAddress !== walletAddress.toLowerCase())) {
         return null;
       }
-      
+
       return video;
     } catch (error) {
       console.error('Error retrieving video:', error);
@@ -218,31 +296,113 @@ export class StorageService {
     }
   }
 
-  /**
-   * Lists videos for a specific wallet address
-   * @param walletAddress User's wallet address
-   * @param limit Maximum number of videos to return
-   * @param skip Number of videos to skip (for pagination)
-   * @returns Array of video documents
-   */
-  static async listUserVideos(
-    walletAddress: string,
-    limit = 50,
-    skip = 0
-  ): Promise<IVideo[]> {
+  static async listUserVideos(walletAddress: string, limit = 50, skip = 0): Promise<IVideo[]> {
     try {
-      // Normalize wallet address
       walletAddress = walletAddress.toLowerCase();
-      
+
       const videos = await Video.find({ walletAddress })
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit);
-      
+
       return videos;
     } catch (error) {
       console.error('Error listing user videos:', error);
       throw new Error(`Failed to list user videos: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Upload a file stream directly to GridFS
+   * @param stream The readable stream to upload
+   * @param filename Name of the file to store in GridFS
+   * @param options Additional options for the upload
+   * @returns The GridFS file ID
+   */
+  static async uploadStreamToGridFS(
+    stream: NodeJS.ReadableStream, 
+    filename: string,
+    options: {
+      contentType?: string,
+      metadata?: Record<string, any>
+    } = {}
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      if (!this.gridFSBucket) {
+        return reject(new Error('GridFS is not initialized'));
+      }
+      
+      const uploadStream = this.gridFSBucket.openUploadStream(filename, {
+        contentType: options.contentType,
+        metadata: options.metadata
+      });
+      
+      stream.pipe(uploadStream)
+        .on('error', (error) => {
+          console.error('Error uploading to GridFS:', error);
+          reject(error);
+        })
+        .on('finish', () => {
+          console.log('File uploaded to GridFS:', uploadStream.id);
+          resolve(uploadStream.id.toString());
+        });
+    });
+  }
+
+  /**
+   * Get a temporary local file path for a GridFS file
+   * @param fileId The GridFS file ID
+   * @param extension Optional file extension to append
+   * @returns Path to the temporary local file
+   */
+  static async getGridFSFileAsLocalPath(fileId: string, extension: string = ''): Promise<string> {
+    try {
+      // Ensure temp directory exists
+      const tempDir = await this.ensureDirectory(config.storage.tempDir);
+      
+      // Create temporary file path
+      const tempFilename = `gridfs-${Date.now()}-${randomUUID().slice(0, 8)}${extension}`;
+      const tempFilePath = path.join(tempDir, tempFilename);
+      
+      // Get file stream from GridFS
+      const downloadStream = this.gridFSBucket.openDownloadStream(new Types.ObjectId(fileId));
+      
+      // Create write stream for the temp file
+      const writeStream = fs.createWriteStream(tempFilePath);
+      
+      // Return a promise that resolves when the file is fully downloaded
+      return new Promise((resolve, reject) => {
+        downloadStream
+          .pipe(writeStream)
+          .on('error', (error: any) => {
+            console.error('Error downloading file from GridFS:', error);
+            reject(error);
+          })
+          .on('finish', () => {
+            resolve(tempFilePath);
+          });
+      });
+    } catch (error) {
+      console.error('Error creating local file from GridFS:', error);
+      throw new Error(`Failed to create local file from GridFS: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Delete a file from GridFS
+   * @param fileId The GridFS file ID
+   */
+  static async deleteFromGridFS(fileId: string): Promise<void> {
+    try {
+      if (!this.gridFSBucket) {
+        throw new Error('GridFS is not initialized');
+      }
+      
+      await this.gridFSBucket.delete(new Types.ObjectId(fileId));
+      console.log(`Deleted file with ID ${fileId} from GridFS`);
+    } catch (error) {
+      console.error('Error deleting file from GridFS:', error);
+      throw new Error(`Failed to delete file from GridFS: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }

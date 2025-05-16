@@ -12,6 +12,8 @@ export async function walletAuthMiddleware(req: Request, res: Response, next: Ne
       req.query.wallet as string ||
       req.body?.walletAddress;
 
+      console.log('walletAuthMiddleware - Received walletAddress:', walletAddress); // Debugging
+
     if (!walletAddress) {
       res.status(401).json({
         error: 'Authentication required',

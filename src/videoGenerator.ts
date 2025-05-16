@@ -6,6 +6,8 @@ import { existsSync } from 'fs';
 import { randomUUID } from 'crypto';
 import path from 'path';
 import { VideoGenerationOptions, RenderedSlide, TutorialResult } from './types';
+import { gridFSStorage } from './services/gridFSStorage';
+import { Readable } from 'stream';
 // import fontData from './font.json';
 
 // Register fonts
@@ -481,7 +483,10 @@ export async function explainDocs(
     console.log('Combining slides, transitions, and audio...');
 
     // Generate the output video
-    const outputPath = path.join(process.cwd(), 'tutorial.mp4');
+    // const outputPath = path.join(process.cwd(), 'tutorial.mp4');
+    // Use the outputPath from options or fall back to a default
+    const outputPath = options.outputPath || path.join(process.cwd(), `tutorial_${Date.now()}.mp4`);
+    console.log('Output video path:', outputPath);
 
     // Create concatenation file for ffmpeg
     const concatFilePath = path.join(tempDir, 'concat.txt');

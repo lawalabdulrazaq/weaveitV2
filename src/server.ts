@@ -17,26 +17,16 @@ import { Video } from './models';
 import cors from 'cors';
 import { setupSwagger } from './swagger';
 import { VideoGenerationOptions } from './types';
+import { generateSpeech } from './textToSpeech';
+import mongoose from 'mongoose';
+import { gridFSStorage } from './services/gridFSStorage';
+import { Readable } from 'stream';
+import { TextToSpeechService } from './textToSpeech';
+import { VideoProcessor } from './videoProcessor';
+import { ObjectId } from 'mongodb';
 
-// Storage configuration for file uploads
-const storage = multer.diskStorage({
-  destination: async (req, file, cb) => {
-    try {
-      const uploadDir = path.join(process.cwd(), 'uploads');
-      // Ensure directory exists
-      await StorageService.ensureDirectory(uploadDir);
-      cb(null, uploadDir);
-    } catch (error) {
-      cb(error as Error, '');
-    }
-  },
-  filename: (req, file, cb) => {
-    const uniqueName = `${Date.now()}-${randomUUID().slice(0, 8)}-${file.originalname}`;
-    cb(null, uniqueName);
-  }
-});
-
-const upload = multer({ storage });
+// Create Multer instance with GridFS storage
+const upload = multer({ storage: gridFSStorage });
 const transports: Record<string, StreamableHTTPServerTransport> = {};
 
 /**
@@ -56,46 +46,173 @@ export async function render3DVideo(
   }
 ): Promise<string> {
   try {
-    // Check if we should use the mock implementation
-    if (process.env.USE_MOCK === 'true') {
-      console.log('Using mock video generation');
-      const outputDir = await StorageService.ensureDirectory(config.storage.outputDir);
-      const outputPath = path.join(outputDir, `tutorial_${Date.now()}.mp4`);
-      await fs.writeFile(outputPath, 'mock video content');
-      return outputPath;
-    }
-    
-    // Otherwise, use the real implementation
     console.log('Generating video with real implementation');
-    return await explainDocs(text, audioPath, options);
+
+    // Use outputDir instead of tempDir for final video
+    const outputDir = await StorageService.ensureDirectory(config.storage.outputDir);
+    console.log('Output directory:', outputDir);
+
+    const videoFilename = `${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
+    const outputPath = path.join(outputDir, videoFilename);
+    console.log('Output video path:', outputPath);
+
+    // Generate video
+    const videoPath = await explainDocs(text, audioPath, {
+      ...options,
+      outputPath
+    });
+
+    if (!existsSync(videoPath)) {
+      throw new Error(`Video file not found at ${videoPath}`);
+    }
+
+    console.log(`Video generated successfully at ${videoPath}`);
+
+    // Upload to GridFS
+    const gridFSFileId = await StorageService.uploadVideoToGridFS(videoPath, videoFilename);
+    console.log(`Video uploaded to GridFS with ID: ${gridFSFileId}`);
+
+    // Return the filename instead of GridFS ID
+    return videoFilename;
   } catch (error) {
     console.error('Error generating video:', error);
     throw new Error(`Failed to generate video: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
-/**
- * Generates a voiceover for the provided text
- * @param text Text content for voiceover
- * @param outputPath Path to save the audio file
- */
-async function generateVoiceover(text: string, outputPath: string): Promise<void> {
-  try {
-    if (process.env.USE_MOCK === 'true') {
-      console.log('Using mock voiceover generation');
-      await fs.writeFile(outputPath, 'mock voiceover content');
-      return;
-    }
+// /**
+//  * Generates a voiceover for the provided text
+//  * @param text Text content for voiceover
+//  * @param outputPath Path to save the audio file
+//  */
+// async function generateVoiceover(text: string, outputPath: string): Promise<void> {
+//   try {
+//     if (process.env.USE_MOCK === 'true') {
+//       console.log('Using mock voiceover generation');
+//       await fs.writeFile(outputPath, 'mock voiceover content');
+//       return;
+//     }
   
-    console.log('Generating real voiceover...');
-    // Call your text-to-speech service here
-    // Example: await textToSpeechService.generate(text, outputPath);
-    throw new Error('Text-to-speech service not implemented.');
+//     console.log('Generating real voiceover...');
+//     // Call your text-to-speech service here
+//     // Example: await textToSpeechService.generate(text, outputPath);
+    
+//     // Generate the speech
+//     await generateSpeech(text, outputPath, {
+//       voice: 'alloy',  // Use default voice
+//       speed: 1.0       // Use default speed
+//     });
+
+//     console.log(`Voiceover generated successfully: ${outputPath}`);
+//   } catch (error) {
+//     console.error('Error generating voiceover:', error);
+//     throw new Error(`Failed to generate voiceover: ${error instanceof Error ? error.message : String(error)}`);
+//   }
+// }
+
+
+/**
+ * Generate voiceover audio directly to a buffer in memory
+ * @param {string} text - The text to convert to speech
+ * @returns {Promise<Buffer>} - A promise that resolves to a buffer containing the audio data
+ */
+async function generateVoiceoverToBuffer(text: string): Promise<Buffer> {
+  try {
+    console.log('Generating voiceover for text:', text.substring(0, 50) + '...');
+    
+    // Use your text-to-speech service to generate audio directly to a buffer
+    const ttsService = new TextToSpeechService();
+    const audioBuffer = await ttsService.synthesizeSpeech(text);
+    
+    console.log('Voiceover generated successfully as buffer');
+    return audioBuffer;
   } catch (error) {
     console.error('Error generating voiceover:', error);
-    throw new Error(`Failed to generate voiceover: ${error instanceof Error ? error.message : String(error)}`);
+    throw error;
   }
 }
+
+/**
+ * Render a 3D video using code and voiceover from GridFS
+ * @param {string} code - The code to render in the video
+ * @param {string|ObjectId} voiceoverGridFSId - The GridFS ID of the voiceover file
+ * @param {Object} options - Rendering options
+ * @returns {Promise<string>} - A promise that resolves to the GridFS ID of the generated video
+ */
+async function render3DVideoWithGridFS(
+  code: string, 
+  voiceoverGridFSId: string | ObjectId | null, 
+  options: VideoGenerationOptions = {
+    quality: config.video.defaultQuality,
+    includeCodeHighlight: true,
+    resolution: config.video.defaultResolution
+  }
+): Promise<string> {
+  try {
+    console.log('Starting 3D video rendering with GridFS voiceover ID:', voiceoverGridFSId);
+    
+    // Get the voiceover stream from GridFS
+    let voiceoverStream = null;
+    if (voiceoverGridFSId) {
+      // Ensure bucket is initialized
+      if (!gridFSStorage.bucket) {
+        await gridFSStorage.initialize();
+      }
+      
+      if (!gridFSStorage.bucket) {
+        throw new Error('Failed to initialize GridFS bucket');
+      }
+
+      voiceoverStream = gridFSStorage.bucket.openDownloadStream(
+        typeof voiceoverGridFSId === 'string' ? new ObjectId(voiceoverGridFSId) : voiceoverGridFSId
+      );
+    }
+    
+    // Generate the video directly to a buffer
+    const videoProcessor = new VideoProcessor();
+    const videoBuffer = await videoProcessor.render3D(code, voiceoverStream, options);
+    
+    // Upload the video buffer to GridFS
+    const videoFilename = `${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
+
+    // Ensure bucket is initialized before upload
+    if (!gridFSStorage.bucket) {
+      await gridFSStorage.initialize();
+    }
+
+    if (!gridFSStorage.bucket) {
+      throw new Error('Failed to initialize GridFS bucket');
+    }
+
+    const videoGridFSId = await new Promise<string>((resolve, reject) => {
+      const uploadStream = gridFSStorage.bucket!.openUploadStream(videoFilename, {
+        metadata: { type: 'video', codeSnippet: code.substring(0, 200) }
+      });
+      
+      const bufferStream = new Readable();
+      bufferStream.push(videoBuffer);
+      bufferStream.push(null); // Signal end of stream
+      
+      bufferStream.pipe(uploadStream);
+      
+      uploadStream.on('finish', () => {
+        console.log('Video uploaded to GridFS with ID:', uploadStream.id);
+        resolve(uploadStream.id.toString());
+      });
+      
+      uploadStream.on('error', (error) => {
+        reject(error);
+      });
+    });
+    
+    return videoGridFSId;
+  } catch (error) {
+    console.error('Error rendering 3D video:', error);
+    throw error;
+  }
+}
+
+// ...rest of the file...
 
 /**
  * Start the MCP server
@@ -105,6 +222,9 @@ async function generateVoiceover(text: string, outputPath: string): Promise<void
 export async function startServer(port = config.server.port) {
   // Connect to MongoDB
   await connectDB();
+
+  // Initialize GridFS
+  await StorageService.initializeGridFS();
   
   const app = express();
   
@@ -291,86 +411,125 @@ export async function startServer(port = config.server.port) {
     }
   });
   
-  // Video generation endpoint
-  app.post('/generate-video', walletAuthMiddleware, upload.none(), async (req, res) => {
+  // Video generation endpoint using GridFS storage
+  app.post('/generate-video', upload.none(), walletAuthMiddleware, async (req, res) => {
+  try {
+    console.log("Received video generation request");
+    console.log('Request body:', req.body);
+    const { code, theme = config.video.defaultTheme, animationStyle = config.video.defaultAnimationStyle, walletAddress } = req.body;
+
+    // Validate wallet address
+    if (!walletAddress || walletAddress.length < 5) {
+      res.status(400).json({ error: 'Invalid wallet address. It must be at least 5 characters long.' });
+      return;
+    }
+    console.log('Wallet address:', walletAddress);
+
+    // Validate code input
+    if (!code || code.length < 10) {
+      res.status(400).json({ error: 'Code is required and must be at least 10 characters long.' });
+      return;
+    }
+
+    console.log('Generating video for code with wallet:', walletAddress);
+
+    // Generate voiceover directly to GridFS
+    const voiceoverFilename = `${Date.now()}-${randomUUID().slice(0, 8)}.mp3`;
+    let voiceoverGridFSId = null;
+
     try {
-      console.log("Received video generation request");
-      console.log('Request body:', req.body);
-      const { code, theme = config.video.defaultTheme, animationStyle = config.video.defaultAnimationStyle, walletAddress } = req.body;
+      // Generate voiceover in memory
+      const voiceoverBuffer = await generateVoiceoverToBuffer(code);
 
-      if (!walletAddress || walletAddress.length < 5) {
-        res.status(400).json({ error: 'Invalid wallet address. It must be at least 5 characters long.' });
-        return;
+      // Ensure bucket is initialized
+      if (!gridFSStorage.bucket) {
+        await gridFSStorage.initialize();
       }
-      console.log('Wallet address:', walletAddress);
-
-      if (!code || code.length < 10) {
-        res.status(400).json({ error: 'Code is required and must be at least 10 characters long.' });
-        return;
+      
+      if (!gridFSStorage.bucket) {
+        throw new Error('Failed to initialize GridFS bucket');
       }
-
-      console.log('Generating video for code with wallet:', walletAddress);
-
-      // Generate voiceover first
-      const tempDir = await StorageService.ensureDirectory(config.storage.tempDir);
-      const voiceoverPath = path.join(tempDir, `${Date.now()}-${randomUUID().slice(0, 8)}.mp3`);
-
-      try {
-        await generateVoiceover(code, voiceoverPath);
-      } catch (error) {
-        console.error('Failed to generate voiceover:', error);
-        // Continue without voiceover if it fails
-      }
-
-      // Create video record in database
-      const videoTitle = `Code Tutorial ${new Date().toISOString().split('T')[0]}`;
-      const outputDir = await StorageService.ensureDirectory(config.storage.outputDir);
-      const videoFilename = `${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
-      const videoPath = path.join(outputDir, videoFilename);
-
-      const videoRecord = await StorageService.createVideoRecord({
-        title: videoTitle,
-        codeSnippet: code.substring(0, 200) + (code.length > 200 ? '...' : ''),
-        videoPath: videoFilename,
-        walletAddress,
-        theme,
-        animationStyle,
-      });
-
-      // Generate video asynchronously
-      render3DVideo(code, voiceoverPath, {
-        includeCodeHighlight: true,
-        resolution: config.video.defaultResolution,
-        quality: config.video.defaultQuality,
-      })
-        .then(async () => {
-          await StorageService.updateVideoStatus(videoRecord._id, 'completed');
-          console.log('Video generation completed for:', videoRecord._id);
-        })
-        .catch(async (error) => {
-          console.error('Video generation failed:', error);
-          await StorageService.updateVideoStatus(
-            videoRecord._id,
-            'failed',
-            error instanceof Error ? error.message : String(error)
-          );
+      
+      // Create a readable stream from the buffer and upload to GridFS
+      const voiceoverStream = new Readable();
+      voiceoverStream.push(voiceoverBuffer);
+      voiceoverStream.push(null); // Signal end of stream
+      
+      voiceoverGridFSId = await new Promise<ObjectId>((resolve, reject) => {
+        const uploadStream = gridFSStorage.bucket!.openUploadStream(voiceoverFilename, {
+          metadata: { type: 'voiceover', walletAddress }
         });
-
-      // Respond immediately with the job ID
-      res.status(202).json({
-        message: 'Video generation started',
-        videoId: videoRecord._id,
-        status: 'processing',
-        accessUrl: `/videos/${videoFilename}?wallet=${walletAddress}`,
+        
+        voiceoverStream.pipe(uploadStream);
+        
+        uploadStream.on('finish', () => {
+          console.log('Voiceover uploaded to GridFS with ID:', uploadStream.id);
+          resolve(uploadStream.id);
+        });
+        
+        uploadStream.on('error', (error) => {
+          reject(error);
+        });
       });
     } catch (error) {
-      console.error('Error generating video:', error);
-      res.status(500).json({
-        error: 'Failed to generate video.',
-        message: error instanceof Error ? error.message : String(error),
-      });
+      console.error('Failed to generate voiceover:', error);
+      // Continue without voiceover if it fails
     }
-  });
+
+    // Create video record in database
+    const videoTitle = `Code Tutorial ${new Date().toISOString().split('T')[0]}`;
+    const videoFilename = `${Date.now()}-${randomUUID().slice(0, 8)}.mp4`;
+    
+    console.log('Creating video record with filename:', videoFilename);
+
+    const videoRecord = await StorageService.createVideoRecord({
+      title: videoTitle,
+      codeSnippet: code.substring(0, 200) + (code.length > 200 ? '...' : ''),
+      videoPath: videoFilename, // Store just the filename, not the full path
+      walletAddress,
+      theme,
+      animationStyle,
+      voiceoverId: voiceoverGridFSId // Store the GridFS ID of the voiceover file
+    });
+
+    // Generate video asynchronously
+    render3DVideoWithGridFS(code, voiceoverGridFSId, {
+      includeCodeHighlight: true,
+      resolution: config.video.defaultResolution,
+      quality: config.video.defaultQuality
+    })
+      .then(async (generatedVideoId) => {
+        // Update video record with the generated video ID
+        await StorageService.updateVideoRecord(videoRecord._id, {
+          videoGridFSId: generatedVideoId,
+          status: 'completed'
+        });
+        console.log('Video generation completed for:', videoRecord._id);
+      })
+      .catch(async (error) => {
+        console.error('Video generation failed:', error);
+        await StorageService.updateVideoStatus(
+          videoRecord._id,
+          'failed',
+          error instanceof Error ? error.message : String(error)
+        );
+      });
+
+    // Respond immediately with the job ID
+    res.status(202).json({
+      message: 'Video generation started',
+      videoId: videoRecord._id,
+      status: 'processing',
+      accessUrl: `/videos/${videoFilename}?wallet=${walletAddress}`,
+    });
+  } catch (error) {
+    console.error('Error generating video:', error);
+    res.status(500).json({
+      error: 'Failed to generate video.',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
 
   // Check video status endpoint
   app.get('/video-status/:videoId', walletAuthMiddleware, async (req: any, res: any, next) => {
@@ -436,71 +595,68 @@ export async function startServer(port = config.server.port) {
   });
 
   // Video download/stream endpoint
-  app.get('/videos/:filename', optionalWalletAuthMiddleware, async (req: any, res: any, next) => {
-    try {
-      const filename = req.params.filename;
-      const walletAddress = (req as any).walletAddress;
-      
-      // If wallet address provided, verify ownership
-      if (walletAddress) {
-        const video = await StorageService.getVideoByIdOrFilename(filename, walletAddress);
-        
-        if (!video) {
-          return res.status(404).json({ error: 'Video not found or access denied' });
-        }
-        
-        // Get the actual filepath
-        const outputDir = config.storage.outputDir;
-        const filePath = path.join(outputDir, video.videoPath);
-        
-        if (!existsSync(filePath)) {
-          return res.status(404).json({ error: 'Video file not found' });
-        }
-        
-        res.setHeader('Content-Type', 'video/mp4');
-        res.setHeader('Content-Disposition', `attachment; filename="${video.videoPath}"`);
-        
-        const fileStream = createReadStream(filePath);
-        fileStream.pipe(res);
-        
-        fileStream.on('end', () => {
-          res.end();
-        });
-        
-        fileStream.on('error', (error) => {
-          console.error('Error streaming video file:', error);
-          res.status(500).json({ error: 'Error serving video file' });
-        });
-      } else {
-        // No wallet provided, check if the video exists (could be public)
-        const outputDir = config.storage.outputDir;
-        const filePath = path.join(outputDir, filename);
-        
-        if (!existsSync(filePath)) {
-          return res.status(404).json({ error: 'Video not found' });
-        }
-        
-        res.setHeader('Content-Type', 'video/mp4');
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        
-        const fileStream = createReadStream(filePath);
-        fileStream.pipe(res);
-        
-        fileStream.on('end', () => {
-          res.end();
-        });
-        
-        fileStream.on('error', (error) => {
-          console.error('Error streaming video file:', error);
-          res.status(500).json({ error: 'Error serving video file' });
-        });
-      }
-    } catch (error) {
-      console.error('Error serving video:', error);
-      res.status(500).json({ error: 'Error serving video file' });
-      next(error);
+app.get('/videos/:filename', optionalWalletAuthMiddleware, async (req: any, res: any, next) => {
+  try {
+    const filename = req.params.filename;
+    const walletAddress = (req as any).walletAddress;
+
+    console.log('Requesting video:', filename);
+    console.log('Wallet address:', walletAddress);
+
+    const video = await StorageService.getVideoByIdOrFilename(filename, walletAddress);
+
+    if (!video) {
+      return res.status(404).json({ error: 'Video not found or access denied' });
     }
-  });
+
+    console.log('Found video:', video);
+
+    if (mongoose.Types.ObjectId.isValid(video.videoPath)) {
+      // Handle GridFS stored video
+      console.log('Serving video from GridFS:', video.videoPath);
+
+      res.setHeader('Content-Type', 'video/mp4');
+      res.setHeader('Content-Disposition', `attachment; filename="${video.title}.mp4"`);
+
+      const videoStream = StorageService.getVideoFromGridFS(video.videoPath);
+      videoStream.pipe(res);
+
+      videoStream.on('error', (error) => {
+        console.error('Error streaming video from GridFS:', error);
+        res.status(500).json({ error: 'Error serving video file' });
+      });
+
+      return;
+    } else {
+      // Handle local file system stored video
+      const outputDir = config.storage.outputDir;
+      const filePath = path.join(outputDir, video.videoPath);
+      console.log('Serving video from file system:', filePath);
+
+      if (!existsSync(filePath)) {
+        console.error('Video file not found at path:', filePath);
+        return res.status(404).json({ error: 'Video file not found' });
+      }
+
+      res.setHeader('Content-Type', 'video/mp4');
+      res.setHeader('Content-Disposition', `attachment; filename="${video.title}.mp4"`);
+
+      const fileStream = createReadStream(filePath);
+      fileStream.pipe(res);
+
+      fileStream.on('error', (error) => {
+        console.error('Error streaming video file:', error);
+        res.status(500).json({ error: 'Error serving video file' });
+      });
+
+      return;
+    }
+  } catch (error) {
+    console.error('Error serving video:', error);
+    res.status(500).json({ error: 'Error serving video file' });
+    next(error);
+  }
+});
   
   // Start server
   const server = app.listen(port, () => {
