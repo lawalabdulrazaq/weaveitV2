@@ -24,6 +24,7 @@ import { Readable } from 'stream';
 import { TextToSpeechService } from './textToSpeech';
 import { VideoProcessor } from './videoProcessor';
 import { ObjectId } from 'mongodb';
+import { createSolanaMcpServer, startSolanaMcpServer, McpServiceConfig } from './services/solanaMcpService';
 
 // Create Multer instance with GridFS storage
 const upload = multer({ storage: gridFSStorage });
@@ -667,6 +668,29 @@ app.get('/videos/:filename', optionalWalletAuthMiddleware, async (req: any, res:
   return { app, server };
 }
 
+
+/**
+ * Starts the Solana MCP server
+ * This function should be called separately when using the MCP functionality
+ * @param config Optional configuration for the MCP server
+ */
+export function startMcpServer(config?: McpServiceConfig): void {
+  try {
+    startSolanaMcpServer(config);
+  } catch (error) {
+    console.error('Failed to start Solana MCP server:', error);
+    throw error;
+  }
+}
+
+/**
+ * Creates a new Solana MCP server instance
+ * @param config Optional configuration for the MCP server
+ * @returns The configured MCP server
+ */
+export function createMcpServer(config?: McpServiceConfig) {
+  return createSolanaMcpServer(config);
+}
 // run the server
 startServer(config.server.port)
   .then(({ app, server }) => {

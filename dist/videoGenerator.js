@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.render3DVideo = render3DVideo;
+exports.explainDocs = explainDocs;
 // src/videoGenerator.ts
 const canvas_1 = require("canvas");
 const fluent_ffmpeg_1 = __importDefault(require("fluent-ffmpeg"));
@@ -376,7 +376,7 @@ function generateTransitions(slides, options, outputDir) {
     });
 }
 /** Main function to render 3D video */
-function render3DVideo(tutorialText_1, audioPath_1) {
+function explainDocs(tutorialText_1, audioPath_1) {
     return __awaiter(this, arguments, void 0, function* (tutorialText, audioPath, options = DEFAULT_OPTIONS) {
         console.log('Starting 3D video generation...');
         // Parse tutorial into slides
@@ -425,7 +425,10 @@ function render3DVideo(tutorialText_1, audioPath_1) {
             const transitionPaths = yield generateTransitions(slides, options, transitionDir);
             console.log('Combining slides, transitions, and audio...');
             // Generate the output video
-            const outputPath = path_1.default.join(process.cwd(), 'tutorial.mp4');
+            // const outputPath = path.join(process.cwd(), 'tutorial.mp4');
+            // Use the outputPath from options or fall back to a default
+            const outputPath = options.outputPath || path_1.default.join(process.cwd(), `tutorial_${Date.now()}.mp4`);
+            console.log('Output video path:', outputPath);
             // Create concatenation file for ffmpeg
             const concatFilePath = path_1.default.join(tempDir, 'concat.txt');
             let concatContent = '';

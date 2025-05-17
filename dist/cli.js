@@ -1,54 +1,101 @@
 "use strict";
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 // src/cli.ts
-// #!/usr/bin/env node
-const commander_1 = require("commander");
-const fs_1 = __importDefault(require("fs"));
-const path_1 = __importDefault(require("path"));
-const codeAnalyzer_1 = require("./codeAnalyzer");
-const textToSpeech_1 = require("./textToSpeech");
+const yargs_1 = __importDefault(require("yargs"));
+const helpers_1 = require("yargs/helpers");
 const server_1 = require("./server");
-const program = new commander_1.Command();
-program
-    .name('aigen')
-    .description('AI agent SDK to turn code into a tutorial')
-    .version('0.1.0');
-program
-    .command('analyze')
-    .description('Analyze a script and generate a tutorial')
-    .requiredOption('-f, --file <path>', 'Path to the script file')
-    .option('-v, --voice', 'Also generate voiceover')
-    .option('--video', 'Also generate tutorial video')
-    .action((options) => __awaiter(void 0, void 0, void 0, function* () {
-    const filePath = path_1.default.resolve(process.cwd(), options.file);
-    if (!fs_1.default.existsSync(filePath)) {
-        console.error('File not found:', filePath);
-        process.exit(1);
+// Import any other necessary functions
+/**
+ * Command line interface for WeaveIt
+ */
+const cli = (0, yargs_1.default)((0, helpers_1.hideBin)(process.argv))
+    .command('start', 'Start the WeaveIt server', (yargs) => {
+    return yargs.option('port', {
+        describe: 'Port to run the server on',
+        type: 'number',
+        default: 3000
+    });
+}, (argv) => {
+    (0, server_1.startServer)(argv.port);
+})
+    .command('mcp', 'Start the Solana MCP server', (yargs) => {
+    return yargs
+        .option('apikey', {
+        describe: 'API key for the MCP service',
+        type: 'string'
+    })
+        .option('apisecret', {
+        describe: 'API secret for the MCP service',
+        type: 'string'
+    })
+        .option('rpc', {
+        describe: 'Solana RPC endpoint URL',
+        type: 'string'
+    });
+}, (argv) => {
+    // Set environment variables from CLI arguments
+    if (argv.apikey) {
+        process.env.MCP_API_KEY = argv.apikey;
     }
-    const code = fs_1.default.readFileSync(filePath, 'utf-8');
-    const result = yield (0, codeAnalyzer_1.analyzeCode)(code);
-    console.log('\n--- Generated Tutorial ---\n');
-    console.log(result.tutorialText);
-    let audioPath = filePath.replace(/\.[^.]+$/, '.mp3');
-    if (options.voice || options.video) {
-        yield (0, textToSpeech_1.generateSpeech)(result.tutorialText, audioPath);
+    if (argv.apisecret) {
+        process.env.MCP_API_SECRET = argv.apisecret;
     }
-    if (options.video) {
-        const videoPath = filePath.replace(/\.[^.]+$/, '.mp4');
-        yield (0, server_1.render3DVideo)(result.tutorialText, audioPath);
+    if (argv.rpc) {
+        process.env.SOLANA_RPC_ENDPOINT = argv.rpc;
     }
-}));
-program.parse();
-exports.default = program;
+    (0, server_1.startMcpServer)({
+        apiKey: argv.apikey,
+        apiSecret: argv.apisecret,
+        rpcEndpoint: argv.rpc
+    });
+})
+    .command('generate-config', 'Generate MCP configuration for Claude', (yargs) => {
+    return yargs
+        .option('path', {
+        describe: 'Path to the index.ts file',
+        type: 'string',
+        default: __dirname + '/index.ts'
+    })
+        .option('js', {
+        describe: 'Generate config for compiled JS instead of TS',
+        type: 'boolean',
+        default: false
+    })
+        .option('apikey', {
+        describe: 'API key for the MCP service',
+        type: 'string'
+    })
+        .option('apisecret', {
+        describe: 'API secret for the MCP service',
+        type: 'string'
+    });
+}, (argv) => {
+    const command = argv.js ? 'node' : 'ts-node';
+    const path = argv.js
+        ? argv.path.replace(/\/src\//, '/dist/').replace(/\.ts$/, '.js')
+        : argv.path;
+    // Configure environment variables for API authentication
+    const env = {};
+    if (argv.apikey) {
+        env.MCP_API_KEY = argv.apikey;
+    }
+    if (argv.apisecret) {
+        env.MCP_API_SECRET = argv.apisecret;
+    }
+    const config = {
+        mcpServers: {
+            'solana-dev-mcp': {
+                command,
+                args: [path],
+                env
+            }
+        }
+    };
+    console.log(JSON.stringify(config, null, 2));
+});
+// Add other commands for your existing functionality
+// ...
+exports.default = cli;

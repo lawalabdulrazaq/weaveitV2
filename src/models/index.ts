@@ -22,7 +22,7 @@ export interface IVideo extends Document {
   animationStyle: string;
   status: 'processing' | 'completed' | 'failed';
   errorMessage?: string;
-  videoGridFSId?: mongoose.Types.ObjectId;
+  videoGridFSId?: string | mongoose.Types.ObjectId;
   voiceoverId?: string | mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;

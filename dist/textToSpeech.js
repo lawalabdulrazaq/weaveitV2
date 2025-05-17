@@ -45,6 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.TextToSpeechService = void 0;
 exports.generateSpeech = generateSpeech;
 // src/textToSpeech.ts
 const openai_1 = require("openai");
@@ -55,6 +56,21 @@ const util_1 = require("util");
 (0, dotenv_1.config)();
 const writeFileAsync = (0, util_1.promisify)(fs_1.default.writeFile);
 const openai = new openai_1.OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+class TextToSpeechService {
+    synthesizeSpeech(text) {
+        return __awaiter(this, void 0, void 0, function* () {
+            // Implement your text-to-speech logic here
+            const audioResponse = yield openai.audio.speech.create({
+                model: 'tts-1',
+                voice: 'alloy',
+                input: text,
+                speed: 1.0,
+            });
+            return Buffer.from(yield audioResponse.arrayBuffer());
+        });
+    }
+}
+exports.TextToSpeechService = TextToSpeechService;
 /**
  * Generate speech from text using OpenAI's TTS API
  * @param text The text to convert to speech
